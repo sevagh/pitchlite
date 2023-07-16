@@ -51,7 +51,7 @@ cumulative_mean_normalized_difference(std::vector<float> &yin_buffer)
     }
 }
 
-float pitchlite::Yin::pitch(const float *audio_buffer, int sample_rate)
+float pitchlite::Yin::pitch(const float *audio_buffer)
 {
     int tau_estimate;
 
@@ -60,11 +60,11 @@ float pitchlite::Yin::pitch(const float *audio_buffer, int sample_rate)
     cumulative_mean_normalized_difference(this->yin_buffer);
     tau_estimate = absolute_threshold(this->yin_buffer, this->YinThreshold);
 
-    auto ret =
-        (tau_estimate != -1)
-            ? sample_rate / std::get<0>(pitchlite::parabolic_interpolation(
-                                this->yin_buffer, tau_estimate))
-            : -1;
+    auto ret = (tau_estimate != -1)
+                   ? this->sample_rate /
+                         std::get<0>(pitchlite::parabolic_interpolation(
+                             this->yin_buffer, tau_estimate))
+                   : -1;
 
     this->clear();
     return ret;

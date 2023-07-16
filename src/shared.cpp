@@ -1,6 +1,6 @@
 #include "pitchlite.hpp"
 #include <algorithm>
-#include <kiss_fft.h>
+#include <kiss_fftr.h>
 #include <numeric>
 #include <vector>
 
@@ -27,29 +27,25 @@ static kiss_fft_cpx complex_conj(const kiss_fft_cpx &a)
     return c;
 }
 
-void pitchlite::acorr_r(const float *audio_buffer, pitchlite::BaseAlloc *ba)
+void pitchlite::acorr_r(const float *audio_buffer, pitchlite::PitchBase *ba)
 {
-    std::transform(audio_buffer, audio_buffer + ba->N,
-        ba->out_im_1.begin(), [](float x) -> kiss_fft_cpx  {
-                return {x, 0.0f};
-        });
+    // forward real FFT
+    kiss_fftr(ba->fft_forward, audio_buffer, ba->out_im.data());
 
-    kiss_fft(ba->fft_forward, ba->out_im_1.data(), ba->out_im_2.data());
-
-    kiss_fft_cpx scale = {1.0f / (float)(ba->N * 2),
-                          0.0f};
-    for (int i = 0; i < ba->N; ++i)
+    // for each bin in the first half (plus DC and Nyquist bins)
+    for (int i = 0; i < ba->N / 2 + 1; ++i)
     {
-        // ba->out_im[i] *= std::conj(ba->out_im[i]) * scale;
-        ba->out_im_2[i] = complex_mult(
-            ba->out_im_2[i], complex_mult(complex_conj(ba->out_im_2[i]), scale));
+        // multiply by complex conjugate
+        ba->out_im[i] =
+            complex_mult(ba->out_im[i], complex_conj(ba->out_im[i]));
+
+        // scale
+        kiss_fft_cpx scale = {1.0f / (float)(ba->N * 2), 0.0f};
+        ba->out_im[i] = complex_mult(ba->out_im[i], scale);
     }
 
-    kiss_fft(ba->fft_backward, ba->out_im_2.data(), ba->out_im_1.data());
-
-    std::transform(ba->out_im_1.begin(), ba->out_im_1.begin() + ba->N,
-        ba->out_real.begin(),
-        [](kiss_fft_cpx cplx) -> float { return cplx.r; });
+    // inverse real FFT
+    kiss_fftri(ba->fft_backward, ba->out_im.data(), ba->out_real.data());
 }
 
 std::pair<float, float>

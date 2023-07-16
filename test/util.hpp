@@ -7,8 +7,7 @@
 namespace test_util
 {
 
-std::vector<float>
-sinewave(size_t, float, int);
+std::vector<float> sinewave(size_t, float, int);
 
 std::vector<float> vec_from_file(std::string);
 

@@ -1,7 +1,7 @@
 #ifndef PITCHLITE_H
 #define PITCHLITE_H
 
-#include <kiss_fft.h>
+#include <kiss_fftr.h>
 #include <stdexcept>
 #include <vector>
 
@@ -20,22 +20,23 @@ static_assert(std::is_same<kiss_fft_scalar, float>::value,
 namespace pitchlite
 {
 
-class BaseAlloc
+class PitchBase
 {
   public:
     long N;
-    // 2 intermediate buffers for kissfft
-    std::vector<kiss_fft_cpx> out_im_1;
-    std::vector<kiss_fft_cpx> out_im_2;
-    std::vector<float> out_real;
-    kiss_fft_cfg fft_forward;
-    kiss_fft_cfg fft_backward;
 
-    BaseAlloc(long audio_buffer_size)
-        : N(audio_buffer_size),
-        out_im_1(std::vector<kiss_fft_cpx>(2 * N)),
-        out_im_2(std::vector<kiss_fft_cpx>(2 * N)),
-        out_real(std::vector<float>(N))
+    kiss_fftr_cfg fft_forward;
+    kiss_fftr_cfg fft_backward;
+
+    // intermediate buffer for kissfft
+    std::vector<kiss_fft_cpx> out_im;
+    std::vector<float> out_real;
+
+    int sample_rate;
+
+    PitchBase(long audio_buffer_size, int sample_rate)
+        : N(audio_buffer_size), out_im(std::vector<kiss_fft_cpx>(N / 2 + 1)),
+          out_real(std::vector<float>(N)), sample_rate(sample_rate)
     {
         if (N == 0)
         {
@@ -43,21 +44,22 @@ class BaseAlloc
         }
 
         // need a kissfftr object
-        fft_forward = kiss_fft_alloc(N, 0, nullptr, nullptr);
-        fft_backward = kiss_fft_alloc(N, 1, nullptr, nullptr);
+        fft_forward = kiss_fftr_alloc(N, 0, nullptr, nullptr);
+        fft_backward = kiss_fftr_alloc(N, 1, nullptr, nullptr);
     }
 
-    ~BaseAlloc()
+    ~PitchBase()
     {
         free(fft_forward);
         free(fft_backward);
     }
 
+    virtual float pitch(const float *) = 0;
+
   protected:
     void clear()
     {
-        std::fill(out_im_1.begin(), out_im_1.end(), kiss_fft_cpx{0.0, 0.0});
-        std::fill(out_im_2.begin(), out_im_2.end(), kiss_fft_cpx{0.0, 0.0});
+        std::fill(out_im.begin(), out_im.end(), kiss_fft_cpx{0.0, 0.0});
     }
 };
 
@@ -69,7 +71,7 @@ class BaseAlloc
  *
  * It will throw std::bad_alloc for invalid sizes (<1)
  */
-class Mpm : public BaseAlloc
+class Mpm : public PitchBase
 {
   public:
     // define static fixed constants
@@ -77,15 +79,21 @@ class Mpm : public BaseAlloc
     static float MpmSmallCutoff;
     static float MpmLowerPitchCutoff;
 
-    Mpm(long audio_buffer_size) : BaseAlloc(audio_buffer_size){};
+    Mpm(long audio_buffer_size, int sample_rate)
+        : PitchBase(audio_buffer_size, sample_rate){};
 
-    float pitch(const float *, int);
+    float pitch(const float *) override;
 
     static void setMpmCutoff(float value) { MpmCutoff = value; }
     static void setMpmSmallCutoff(float value) { MpmSmallCutoff = value; }
     static void setMpmLowerPitchCutoff(float value)
     {
         MpmLowerPitchCutoff = value;
+    }
+
+    virtual ~Mpm()
+    {
+        // do any cleanup that is specific to Mpm class
     }
 };
 
@@ -97,14 +105,14 @@ class Mpm : public BaseAlloc
  *
  * It will throw std::bad_alloc for invalid sizes (<2)
  */
-class Yin : public BaseAlloc
+class Yin : public PitchBase
 {
   public:
     static float YinThreshold;
     std::vector<float> yin_buffer;
 
-    Yin(long audio_buffer_size)
-        : BaseAlloc(audio_buffer_size),
+    Yin(long audio_buffer_size, int sample_rate)
+        : PitchBase(audio_buffer_size, sample_rate),
           yin_buffer(std::vector<float>(audio_buffer_size / 2))
     {
         if (audio_buffer_size / 2 == 0)
@@ -113,15 +121,20 @@ class Yin : public BaseAlloc
         }
     }
 
-    float pitch(const float *, int);
+    float pitch(const float *) override;
 
     static void setYinThreshold(float value) { YinThreshold = value; }
+
+    virtual ~Yin()
+    {
+        // do any cleanup that is specific to Yin class
+    }
 };
 
 std::pair<float, float> parabolic_interpolation(const std::vector<float> &,
                                                 int);
 
-void acorr_r(const float *, BaseAlloc *);
+void acorr_r(const float *, PitchBase *);
 } // namespace pitchlite
 
 #endif /* PITCHLITE */

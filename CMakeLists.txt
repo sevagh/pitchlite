@@ -74,7 +74,7 @@ else()
     target_link_libraries(pitchlite.tests pitchlite gtest gtest_main)
     add_test(NAME tests COMMAND pitchlite.test)
 
-    file(GLOB SOURCES_TO_LINT "src/*.cpp" "src/*.hpp")
+    file(GLOB SOURCES_TO_LINT "src/*.cpp" "src/*.hpp" "test/*.cpp" "test/*.hpp")
 
     # add target to run standard lints and formatters
     add_custom_target(lint

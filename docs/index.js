@@ -1,68 +1,98 @@
-const sampleRate = 48000;
-const audioContext = new AudioContext({ sampleRate: sampleRate });
 const worklet_chunk_size = 128;
 
-let node;
-audioContext.audioWorklet.addModule('audio-accumulator.js').then(() => {
-  // Create an instance of your custom AudioWorkletNode
-  node = new AudioWorkletNode(audioContext, 'audio-accumulator', {
-    numberOfInputs: 1,
-    numberOfOutputs: 1,
-    outputChannelCount: [2],
-  });
-  // Connect to the destination
-  node.connect(audioContext.destination);
-});
-
 let wasmModule;
-let n_pitches;
-pitchlite().then((module) => {
-  wasmModule = module;
-  n_pitches = module._pitchliteInit(4096, 512, audioContext.sampleRate);
-  console.log("WASM module initialized");
-});
+let ptr;
+let ptrPitches;
+let stream;
+let node;
+let isStopped = false;
 
 document.getElementById('start').addEventListener('click', async function() {
+    isStopped = false;
+
     // Request access to the microphone
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-    // Connect the microphone stream to the processor
-    const source = audioContext.createMediaStreamSource(stream);
-    source.connect(node);
+    // Create the audio context after obtaining the stream
+    const audioContext = new AudioContext();
+    console.log("Sample rate:", audioContext.sampleRate);
 
-    // Connect the processor to the audio context's destination
-    // no need if no outputs
-    node.connect(audioContext.destination);
+    let n_pitches;
 
-    // Create WASM views of the buffers, do it once and reuse
-    let ptr = wasmModule._malloc(worklet_chunk_size * Float32Array.BYTES_PER_ELEMENT);
-    let ptrPitches = wasmModule._malloc(n_pitches * Float32Array.BYTES_PER_ELEMENT);
+    pitchlite().then((module) => {
+        wasmModule = module;
+        n_pitches = module._pitchliteInit(
+            1024,
+            512,
+            audioContext.sampleRate, // use the actual sample rate of the audio context
+            true, // use yin
+            80, // mpm low pitch cutoff
+        );
 
-    console.log("Created pitches buffer of size", n_pitches);
+        // Create WASM views of the buffers, do it once and reuse
+        ptr = wasmModule._malloc(worklet_chunk_size * Float32Array.BYTES_PER_ELEMENT);
+        ptrPitches = wasmModule._malloc(n_pitches * Float32Array.BYTES_PER_ELEMENT);
 
-    // In the onmessage event handler of your AudioWorkletNode.port
-    // append received data to the ring buffer
-    node.port.onmessage = function(event) {
-      // event.data contains 128 samples of audio data from
-      // the microphone through the AudioWorkletProcessor
+        console.log("Created pitches buffer of size", n_pitches);
+        console.log("WASM module initialized, buffers allocated");
+    });
 
-      wasmModule.HEAPF32.set(event.data, ptr / event.data.BYTES_PER_ELEMENT);
+    audioContext.audioWorklet.addModule('audio-accumulator.js').then(() => {
+      // Create an instance of your custom AudioWorkletNode
+      node = new AudioWorkletNode(audioContext, 'audio-accumulator', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+      });
 
-      let ptrPitches = wasmModule._malloc(n_pitches * Float32Array.BYTES_PER_ELEMENT);
+      // Connect the microphone stream to the processor
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(node);
 
-      // Call the WASM function
-      let retval = wasmModule._pitchlitePitches(ptr, worklet_chunk_size, ptrPitches);
+      // Connect to the destination
+      node.connect(audioContext.destination);
 
-      // copy the results back into a JS array
-      // if retval is true, the pitch was calculated
-      if (retval) {
-        let wasmArrayPitches = new Float32Array(wasmModule.HEAPF32.buffer, ptrPitches, n_pitches);
-        // Do something with the pitch
-        console.log("pitches calculated!", wasmArrayPitches)
-      }
-    };
+      // In the onmessage event handler of your AudioWorkletNode.port
+      // append received data to the ring buffer
+      node.port.onmessage = function(event) {
+        // Check if the "stop" button has been clicked
+        if (isStopped) {
+          return;
+        }
+        // event.data contains 128 samples of audio data from
+        // the microphone through the AudioWorkletProcessor
 
-    // cleanup
-    wasmModule._free(ptrPitches);
-    wasmModule._free(ptr);
+        wasmModule.HEAPF32.set(event.data.data, ptr / Float32Array.BYTES_PER_ELEMENT);
+
+        // Call the WASM function
+        let retval = wasmModule._pitchlitePitches(ptr, worklet_chunk_size, ptrPitches);
+
+        // copy the results back into a JS array
+        // if retval is true, the pitch was calculated
+        if (retval) {
+          let wasmArrayPitches = new Float32Array(wasmModule.HEAPF32.buffer, ptrPitches, n_pitches);
+          // Do something with the pitch
+          console.log("pitches calculated!", wasmArrayPitches)
+        }
+      };
+    });
+});
+
+document.getElementById('stop').addEventListener('click', async function() {
+  console.log("Stopping and disconnecting and cleaning up")
+  isStopped = true;
+
+  // disconnect the audio worklet node
+  node.disconnect();
+
+  // stop tracks
+  stream.getTracks().forEach(function(track) {
+    console.log('Stopping stream');
+    // Here you can free the allocated memory
+    track.stop();
+  });
+
+  // cleanup
+  wasmModule._free(ptrPitches);
+  wasmModule._free(ptr);
 });

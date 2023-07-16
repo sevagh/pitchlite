@@ -10,8 +10,8 @@ namespace pitchlite
 float Mpm::MpmCutoff = 0.93;
 float Mpm::MpmSmallCutoff = 0.5;
 
-// 140 Hz for trumpets
-float Mpm::MpmLowerPitchCutoff = 140.0;
+// 80 Hz for guitar
+float Mpm::MpmLowerPitchCutoff = 80.0;
 } // namespace pitchlite
 
 static std::vector<int> peak_picking(const std::vector<float> &nsdf)
@@ -57,7 +57,7 @@ static std::vector<int> peak_picking(const std::vector<float> &nsdf)
     return max_positions;
 }
 
-float pitchlite::Mpm::pitch(const float *audio_buffer, int sample_rate)
+float pitchlite::Mpm::pitch(const float *audio_buffer)
 {
     pitchlite::acorr_r(audio_buffer, this);
 
@@ -92,7 +92,7 @@ float pitchlite::Mpm::pitch(const float *audio_buffer, int sample_rate)
         }
     }
 
-    float pitch_estimate = (sample_rate / period);
+    float pitch_estimate = (this->sample_rate / period);
 
     this->clear();
 
