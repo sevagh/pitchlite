@@ -1,0 +1,8 @@
+/build/
+/build-wasm/
+/build-cpp/
+*.wav
+!/test/data/*.wav
+docs/_site
+.sass-cache/
+!/docs/assets/clips/*.wav
