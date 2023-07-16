@@ -7,6 +7,18 @@ let stream;
 let node;
 let isStopped = false;
 
+let nAccumulated = 0;
+
+const big_win = 4096;
+const small_win = 512;
+const min_pitch = 140; // lower pitch of mpm, 140 hz is close to trumpet
+const use_yin = false; // use MPM by default
+
+function scaleArrayToMinusOneToOne(array) {
+  const maxAbsValue = Math.max(...array.map(Math.abs));
+  return array.map((value) => value / maxAbsValue);
+}
+
 document.getElementById('start').addEventListener('click', async function() {
     isStopped = false;
 
@@ -22,15 +34,15 @@ document.getElementById('start').addEventListener('click', async function() {
     pitchlite().then((module) => {
         wasmModule = module;
         n_pitches = module._pitchliteInit(
-            1024,
-            512,
+            big_win,
+            small_win,
             audioContext.sampleRate, // use the actual sample rate of the audio context
-            true, // use yin
-            80, // mpm low pitch cutoff
+            use_yin, // use yin
+            min_pitch, // mpm low pitch cutoff
         );
 
         // Create WASM views of the buffers, do it once and reuse
-        ptr = wasmModule._malloc(worklet_chunk_size * Float32Array.BYTES_PER_ELEMENT);
+        ptr = wasmModule._malloc(big_win * Float32Array.BYTES_PER_ELEMENT);
         ptrPitches = wasmModule._malloc(n_pitches * Float32Array.BYTES_PER_ELEMENT);
 
         console.log("Created pitches buffer of size", n_pitches);
@@ -62,17 +74,31 @@ document.getElementById('start').addEventListener('click', async function() {
         // event.data contains 128 samples of audio data from
         // the microphone through the AudioWorkletProcessor
 
-        wasmModule.HEAPF32.set(event.data.data, ptr / Float32Array.BYTES_PER_ELEMENT);
+        // scale event.data.data up to [-1, 1]
+        const scaledData = scaleArrayToMinusOneToOne(event.data.data);
 
-        // Call the WASM function
-        let retval = wasmModule._pitchlitePitches(ptr, worklet_chunk_size, ptrPitches);
+        // Calculate the offset in bytes based on naccumulated
+        const offset = (nAccumulated * worklet_chunk_size) * Float32Array.BYTES_PER_ELEMENT;
 
-        // copy the results back into a JS array
-        // if retval is true, the pitch was calculated
-        if (retval) {
+        // store latest 128 samples into the WASM buffer
+        wasmModule.HEAPF32.set(scaledData, (ptr + offset) / Float32Array.BYTES_PER_ELEMENT);
+        nAccumulated += 1;
+
+        // Check if we have enough data to calculate the pitch
+        if (nAccumulated >= (big_win / worklet_chunk_size)) {
+          console.log("Accumulated enough data, calculating pitch")
+          nAccumulated = 0; // reset the accumulator
+
+          // Call the WASM function
+          wasmModule._pitchlitePitches(ptr, ptrPitches);
+
+          // copy the results back into a JS array
           let wasmArrayPitches = new Float32Array(wasmModule.HEAPF32.buffer, ptrPitches, n_pitches);
           // Do something with the pitch
-          console.log("pitches calculated!", wasmArrayPitches)
+          console.log("pitches calculated!", wasmArrayPitches[n_pitches - 1]);
+
+          // clear the entire buffer
+          wasmModule._memset(ptr, 0, big_win * Float32Array.BYTES_PER_ELEMENT);
         }
       };
     });

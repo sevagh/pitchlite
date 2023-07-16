@@ -1,6 +1,5 @@
 // wasm_glue.cpp
 #include "pitchlite.hpp"
-#include "ringbuffer.hpp"
 #include <cstdlib>
 #include <emscripten.h>
 #include <iostream>
@@ -14,12 +13,10 @@ extern "C"
     static Mpm *mpm_small;
     static Yin *yin_big;
     static Yin *yin_small;
-    static RingBuffer *ring_buffer;
 
     static int big_length;
     static int small_length;
     static int n_pitches_out;
-    static int ring_buffer_writes = 0;
 
     EMSCRIPTEN_KEEPALIVE
     int pitchliteInit(int bigwin, int smallwin, int sample_rate, bool use_yin,
@@ -45,7 +42,6 @@ extern "C"
             mpm_small = new Mpm(smallwin, sample_rate);
         }
 
-        ring_buffer = new RingBuffer(bigwin);
         big_length = bigwin;
         small_length = smallwin;
         n_pitches_out = 1 + (bigwin / smallwin);
@@ -63,52 +59,28 @@ extern "C"
     }
 
     EMSCRIPTEN_KEEPALIVE
-    bool pitchlitePitches(const float *input_waveform, int waveform_length,
-                          float *pitches_output)
+    void pitchlitePitches(const float *input_waveform, float *pitches_output)
     {
-        ring_buffer->append(input_waveform, waveform_length);
-        ring_buffer_writes += waveform_length;
+        // input_waveform is the full big_length in size
+        pitches_output[n_pitches_out - 1] =
+            yin_used ? yin_big->pitch(input_waveform)
+                     : mpm_big->pitch(input_waveform);
 
-        if (ring_buffer_writes < big_length)
+        // print the pitch of the full buffer
+        if (pitches_output[n_pitches_out - 1] != -1.0)
         {
-            // no pitches to compute yet
-            return false;
+            std::cout << "pitch: " << pitches_output[n_pitches_out - 1]
+                      << std::endl;
         }
-        else
+
+        // get pitch for sub-waveforms of input_waveform divided into
+        // consecutive waveforms of size small_length
+        for (int i = 0; i < n_pitches_out - 1; ++i)
         {
-            // we have enough data to compute pitches
-
-            // reset ring_buffer_writes to 0
-            ring_buffer_writes -= big_length;
-
-            // now the ring_buffer's buffer is full
-            // we can get the pitch for the full buffer
-
-            // input_waveform is the full big_length in size
-            pitches_output[n_pitches_out - 1] =
-                yin_used ? yin_big->pitch(ring_buffer->data())
-                         : mpm_big->pitch(ring_buffer->data());
-
-            // print the pitch of the full buffer
-            if (pitches_output[n_pitches_out - 1] != -1.0)
-            {
-                std::cout << "pitch: " << pitches_output[n_pitches_out - 1]
-                          << std::endl;
-            }
-
-            // get pitch for sub-waveforms of input_waveform divided into
-            // consecutive waveforms of size small_length
-            for (int i = 0; i < n_pitches_out - 1; ++i)
-            {
-                pitches_output[i] = yin_used
-                                        ? yin_small->pitch(ring_buffer->data() +
-                                                           (i * small_length))
-                                        : mpm_small->pitch(ring_buffer->data() +
-                                                           (i * small_length));
-            }
-
-            ring_buffer->clear();
-            return true;
+            pitches_output[i] =
+                yin_used
+                    ? yin_small->pitch(input_waveform + (i * small_length))
+                    : mpm_small->pitch(input_waveform + (i * small_length));
         }
     }
 
@@ -130,6 +102,5 @@ extern "C"
             mpm_big = nullptr;
             mpm_small = nullptr;
         }
-        delete ring_buffer;
     }
 }

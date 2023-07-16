@@ -42,13 +42,13 @@ if(EMSCRIPTEN)
     target_link_libraries(pitchlite kissfft)
 
     set_target_properties(pitchlite PROPERTIES
-        LINK_FLAGS "-s WASM=1 -s ASSERTIONS=1 -s ALLOW_MEMORY_GROWTH=1 -s MODULARIZE=1 -s EXPORT_NAME=pitchlite -s EXPORTED_FUNCTIONS=\"['_malloc', '_free', '_pitchliteInit', '_pitchlitePitches', '_pitchliteDeinit']\""
+        LINK_FLAGS "-s WASM=1 -s ASSERTIONS=1 -s ALLOW_MEMORY_GROWTH=1 -s MODULARIZE=1 -s EXPORT_NAME=pitchlite -s EXPORTED_FUNCTIONS=\"['_malloc', '_free', '_memset', '_pitchliteInit', '_pitchlitePitches', '_pitchliteDeinit']\""
     )
 
-    # copy built files to ${CMAKE_SOURCE_DIR}/docs
+    # copy built files to ${CMAKE_SOURCE_DIR}/web
     add_custom_command(TARGET pitchlite POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/pitchlite.js ${CMAKE_SOURCE_DIR}/docs
-        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/pitchlite.wasm ${CMAKE_SOURCE_DIR}/docs
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/pitchlite.js ${CMAKE_SOURCE_DIR}/web
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/pitchlite.wasm ${CMAKE_SOURCE_DIR}/web
     )
 # if not emscripten, lint targets only, etc.
 else()

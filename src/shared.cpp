@@ -32,6 +32,9 @@ void pitchlite::acorr_r(const float *audio_buffer, pitchlite::PitchBase *ba)
     // forward real FFT
     kiss_fftr(ba->fft_forward, audio_buffer, ba->out_im.data());
 
+    // scale
+    kiss_fft_cpx scale = {1.0f / (float)(ba->N * 2), 0.0f};
+
     // for each bin in the first half (plus DC and Nyquist bins)
     for (int i = 0; i < ba->N / 2 + 1; ++i)
     {
@@ -39,8 +42,6 @@ void pitchlite::acorr_r(const float *audio_buffer, pitchlite::PitchBase *ba)
         ba->out_im[i] =
             complex_mult(ba->out_im[i], complex_conj(ba->out_im[i]));
 
-        // scale
-        kiss_fft_cpx scale = {1.0f / (float)(ba->N * 2), 0.0f};
         ba->out_im[i] = complex_mult(ba->out_im[i], scale);
     }
 
